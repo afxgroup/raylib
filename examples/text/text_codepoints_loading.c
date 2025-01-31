@@ -2,12 +2,14 @@
 *
 *   raylib [text] example - Codepoints loading
 *
+*   Example complexity rating: [★★★☆] 3/4
+*
 *   Example originally created with raylib 4.2, last time updated with raylib 2.5
 *
 *   Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
 *   BSD-like license that allows static linking with closed source software
 *
-*   Copyright (c) 2022-2024 Ramon Santamaria (@raysan5)
+*   Copyright (c) 2022-2025 Ramon Santamaria (@raysan5)
 *
 ********************************************************************************************/
 
@@ -52,7 +54,7 @@ int main(void)
     // Set bilinear scale filter for better font scaling
     SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
 
-    SetTextLineSpacing(54);         // Set line spacing for multiline text (when line breaks are included '\n')
+    SetTextLineSpacing(20);         // Set line spacing for multiline text (when line breaks are included '\n')
 
     // Free codepoints, atlas has already been generated
     free(codepointsNoDups);

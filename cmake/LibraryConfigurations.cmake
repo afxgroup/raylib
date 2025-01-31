@@ -37,12 +37,6 @@ if (${PLATFORM} MATCHES "Desktop")
         endif ()
 
         set(LIBS_PRIVATE m pthread ${OPENGL_LIBRARIES} ${OSS_LIBRARY})
-    elseif (AMIGAOS4)
-        set(PLATFORM_OS "PLATFORM_AOS4")
-        set(GRAPHICS "GRAPHICS_API_OPENGL_ES2")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-        set(CMAKE_STATIC_LIBRARY_SUFFIX ".a")
-        set(LIBS_PRIVATE glfw3 GL pthread atomic)
     else ()
         find_library(pthread NAMES pthread)
         find_package(OpenGL QUIET)
@@ -57,15 +51,16 @@ if (${PLATFORM} MATCHES "Desktop")
             set(LIBS_PRIVATE m pthread ${OPENGL_LIBRARIES} ${OSS_LIBRARY})
         endif ()
 
-        if (NOT "${CMAKE_SYSTEM_NAME}" MATCHES "(Net|Open)BSD" AND USE_AUDIO)
+        if (NOT "${CMAKE_SYSTEM_NAME}" MATCHES "(Net|Open)BSD" AND USE_AUDIO AND NOT AMIGAOS4)
             set(LIBS_PRIVATE ${LIBS_PRIVATE} dl)
         endif ()
     endif ()
 
 elseif (${PLATFORM} MATCHES "Web")
     set(PLATFORM_CPP "PLATFORM_WEB")
-    set(GRAPHICS "GRAPHICS_API_OPENGL_ES2")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -s USE_GLFW=3 -s ASSERTIONS=1 --profiling")
+    if(NOT GRAPHICS)
+        set(GRAPHICS "GRAPHICS_API_OPENGL_ES2")
+    endif()
     set(CMAKE_STATIC_LIBRARY_SUFFIX ".a")
 
 elseif (${PLATFORM} MATCHES "Android")
@@ -74,6 +69,14 @@ elseif (${PLATFORM} MATCHES "Android")
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     list(APPEND raylib_sources ${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c)
     include_directories(${ANDROID_NDK}/sources/android/native_app_glue)
+
+    # NOTE: We remove '-Wl,--no-undefined' (set by default) as it conflicts with '-Wl,-undefined,dynamic_lookup' needed 
+    #       for compiling with the missing 'void main(void)' declaration in `android_main()`.
+    #       We also remove other unnecessary or problematic flags.
+
+    string(REPLACE "-Wl,--no-undefined -Qunused-arguments" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
+    string(REPLACE "-static-libstdc++" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
+
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--exclude-libs,libatomic.a -Wl,--build-id -Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now -Wl,--warn-shared-textrel -Wl,--fatal-warnings -u ANativeActivity_onCreate -Wl,-undefined,dynamic_lookup")
 
     find_library(OPENGL_LIBRARY OpenGL)
@@ -105,9 +108,10 @@ elseif ("${PLATFORM}" MATCHES "SDL")
 endif ()
 
 if (NOT ${OPENGL_VERSION} MATCHES "OFF")
-    set(${SUGGESTED_GRAPHICS} "${GRAPHICS}")
+    set(SUGGESTED_GRAPHICS "${GRAPHICS}")
+
     if (${OPENGL_VERSION} MATCHES "4.3")
-		set(GRAPHICS "GRAPHICS_API_OPENGL_43")
+        set(GRAPHICS "GRAPHICS_API_OPENGL_43")
     elseif (${OPENGL_VERSION} MATCHES "3.3")
         set(GRAPHICS "GRAPHICS_API_OPENGL_33")
     elseif (${OPENGL_VERSION} MATCHES "2.1")
@@ -119,8 +123,8 @@ if (NOT ${OPENGL_VERSION} MATCHES "OFF")
     elseif (${OPENGL_VERSION} MATCHES "ES 3.0")
         set(GRAPHICS "GRAPHICS_API_OPENGL_ES3")
     endif ()
-    if ("${SUGGESTED_GRAPHICS}" AND NOT "${SUGGESTED_GRAPHICS}" STREQUAL "${GRAPHICS}")
-        message(WARNING "You are overriding the suggested GRAPHICS=${SUGGESTED_GRAPHICS} with ${GRAPHICS}! This may fail")
+    if (NOT "${SUGGESTED_GRAPHICS}" STREQUAL "" AND NOT "${SUGGESTED_GRAPHICS}" STREQUAL "${GRAPHICS}")
+        message(WARNING "You are overriding the suggested GRAPHICS=${SUGGESTED_GRAPHICS} with ${GRAPHICS}! This may fail.")
     endif ()
 endif ()
 

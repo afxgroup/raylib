@@ -14,7 +14,7 @@ Enter int build dir and execute cmake:
 
 ```
 cd build
-cmake -DCMAKE_TOOLCHAIN_FILE=<YourClib4Toolchain> -DCMAKE_BUILD_TYPE=Release -DUSE_EXTERNAL_GLFW=ON ..
+cmake -DCMAKE_TOOLCHAIN_FILE=<YourClib4Toolchain> -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DUSE_EXTERNAL_GLFW=ON -DGRAPHICS=GRAPHICS_API_OPENGL_21 ..
 make
 ```
 

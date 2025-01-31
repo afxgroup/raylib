@@ -20549,6 +20549,21 @@ typedef size_t DWORD_PTR;
 #define WAVE_FORMAT_4S16    0x00000800
 #endif
 
+#if !defined(WAVE_FORMAT_1M08)
+#define WAVE_FORMAT_1M08    0x00000001
+#define WAVE_FORMAT_1S08    0x00000002
+#define WAVE_FORMAT_1M16    0x00000004
+#define WAVE_FORMAT_1S16    0x00000008
+#define WAVE_FORMAT_2M08    0x00000010
+#define WAVE_FORMAT_2S08    0x00000020
+#define WAVE_FORMAT_2M16    0x00000040
+#define WAVE_FORMAT_2S16    0x00000080
+#define WAVE_FORMAT_4M08    0x00000100
+#define WAVE_FORMAT_4S08    0x00000200
+#define WAVE_FORMAT_4M16    0x00000400
+#define WAVE_FORMAT_4S16    0x00000800
+#endif
+
 #if !defined(WAVE_FORMAT_44M08)
 #define WAVE_FORMAT_44M08   0x00000100
 #define WAVE_FORMAT_44S08   0x00000200
@@ -22140,7 +22155,9 @@ static ma_result ma_context_get_MMDevice__wasapi(ma_context* pContext, ma_device
     MA_ASSERT(pContext != NULL);
     MA_ASSERT(ppMMDevice != NULL);
 
+    ma_CoInitializeEx(pContext, NULL, MA_COINIT_VALUE);
     hr = ma_CoCreateInstance(pContext, &MA_CLSID_MMDeviceEnumerator, NULL, CLSCTX_ALL, &MA_IID_IMMDeviceEnumerator, (void**)&pDeviceEnumerator);
+    ma_CoUninitialize(pContext);
     if (FAILED(hr)) {
         ma_log_postf(ma_context_get_log(pContext), MA_LOG_LEVEL_ERROR, "[WASAPI] Failed to create IMMDeviceEnumerator.\n");
         return ma_result_from_HRESULT(hr);
@@ -36743,9 +36760,15 @@ static ma_result ma_context_get_device_info_from_fd__audio4(ma_context* pContext
         ma_uint32 channels;
         ma_uint32 sampleRate;
 
+#ifdef __NetBSD__
+        if (ioctl(fd, AUDIO_GETFORMAT, &fdInfo) < 0) {
+            return MA_ERROR;
+        }
+#else
         if (ioctl(fd, AUDIO_GETINFO, &fdInfo) < 0) {
             return MA_ERROR;
         }
+#endif
 
         if (deviceType == ma_device_type_playback) {
             channels   = fdInfo.play.channels;
@@ -37023,7 +37046,11 @@ static ma_result ma_device_init_fd__audio4(ma_device* pDevice, const ma_device_c
             /* We're using a default device. Get the info from the /dev/audioctl file instead of /dev/audio. */
             int fdctl = open(pDefaultDeviceCtlNames[iDefaultDevice], fdFlags, 0);
             if (fdctl != -1) {
+#ifdef __NetBSD__
+                fdInfoResult = ioctl(fdctl, AUDIO_GETFORMAT, &fdInfo);
+#else
                 fdInfoResult = ioctl(fdctl, AUDIO_GETINFO, &fdInfo);
+#endif
                 close(fdctl);
             }
         }
@@ -61563,6 +61590,8 @@ static ma_result ma_decoder_init_from_memory__internal(const ma_decoding_backend
 
 
 
+
+
 static ma_result ma_decoder_init_custom__internal(const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result = MA_NO_BACKEND;
@@ -63157,6 +63186,18 @@ static ma_result ma_mp3_generate_seek_table(ma_mp3* pMP3, const ma_decoding_back
 
     pMP3->seekPointCount = seekPointCount;
     pMP3->pSeekPoints    = pSeekPoints;
+
+    return MA_SUCCESS;
+}
+
+static ma_result ma_mp3_post_init(ma_mp3* pMP3, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks)
+{
+    ma_result result;
+
+    result = ma_mp3_generate_seek_table(pMP3, pConfig, pAllocationCallbacks);
+    if (result != MA_SUCCESS) {
+        return result;
+    }
 
     return MA_SUCCESS;
 }
@@ -65429,6 +65470,7 @@ static ma_result ma_decoder__preinit_file(const char* pFilePath, const ma_decode
     return MA_SUCCESS;
 }
 
+
 MA_API ma_result ma_decoder_init_file(const char* pFilePath, const ma_decoder_config* pConfig, ma_decoder* pDecoder)
 {
     ma_result result;
@@ -67069,6 +67111,142 @@ MA_API ma_result ma_pulsewave_set_duty_cycle(ma_pulsewave* pWaveform, double dut
 
     return MA_SUCCESS;
 }
+
+MA_API ma_pulsewave_config ma_pulsewave_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double dutyCycle, double amplitude, double frequency)
+{
+    ma_pulsewave_config config;
+
+    MA_ZERO_OBJECT(&config);
+    config.format     = format;
+    config.channels   = channels;
+    config.sampleRate = sampleRate;
+    config.dutyCycle  = dutyCycle;
+    config.amplitude  = amplitude;
+    config.frequency  = frequency;
+
+    return config;
+}
+
+MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsewave* pWaveform)
+{
+    ma_result result;
+    ma_waveform_config config;
+
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    MA_ZERO_OBJECT(pWaveform);
+
+    config = ma_waveform_config_init(
+        pConfig->format,
+        pConfig->channels,
+        pConfig->sampleRate,
+        ma_waveform_type_square,
+        pConfig->amplitude,
+        pConfig->frequency
+    );
+
+    result = ma_waveform_init(&config, &pWaveform->waveform);
+    ma_pulsewave_set_duty_cycle(pWaveform, pConfig->dutyCycle);
+
+    return result;
+}
+
+MA_API void ma_pulsewave_uninit(ma_pulsewave* pWaveform)
+{
+    if (pWaveform == NULL) {
+        return;
+    }
+
+    ma_waveform_uninit(&pWaveform->waveform);
+}
+
+MA_API ma_result ma_pulsewave_read_pcm_frames(ma_pulsewave* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
+{
+    if (pFramesRead != NULL) {
+        *pFramesRead = 0;
+    }
+
+    if (frameCount == 0) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    if (pFramesOut != NULL) {
+        ma_waveform_read_pcm_frames__square(&pWaveform->waveform, pWaveform->config.dutyCycle, pFramesOut, frameCount);
+    } else {
+        pWaveform->waveform.time += pWaveform->waveform.advance * (ma_int64)frameCount; /* Cast to int64 required for VC6. Won't affect anything in practice. */
+    }
+
+    if (pFramesRead != NULL) {
+        *pFramesRead = frameCount;
+    }
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_pulsewave_seek_to_pcm_frame(ma_pulsewave* pWaveform, ma_uint64 frameIndex)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    ma_waveform_seek_to_pcm_frame(&pWaveform->waveform, frameIndex);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_pulsewave_set_amplitude(ma_pulsewave* pWaveform, double amplitude)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->config.amplitude = amplitude;
+    ma_waveform_set_amplitude(&pWaveform->waveform, amplitude);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_pulsewave_set_frequency(ma_pulsewave* pWaveform, double frequency)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->config.frequency = frequency;
+    ma_waveform_set_frequency(&pWaveform->waveform, frequency);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_pulsewave_set_sample_rate(ma_pulsewave* pWaveform, ma_uint32 sampleRate)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->config.sampleRate = sampleRate;
+    ma_waveform_set_sample_rate(&pWaveform->waveform, sampleRate);
+
+    return MA_SUCCESS;
+}
+
+MA_API ma_result ma_pulsewave_set_duty_cycle(ma_pulsewave* pWaveform, double dutyCycle)
+{
+    if (pWaveform == NULL) {
+        return MA_INVALID_ARGS;
+    }
+
+    pWaveform->config.dutyCycle = dutyCycle;
+
+    return MA_SUCCESS;
+}
+
 
 
 
@@ -74931,6 +75109,19 @@ static void ma_engine_node_process_pcm_frames__general(ma_engine_node* pEngineNo
         }
 
         /*
+        If we're using smoothing, we won't be applying volume via the spatializer, but instead from a ma_gainer. In this case
+        we'll want to apply our volume now.
+        */
+        if (isVolumeSmoothingEnabled) {
+            if (isWorkingBufferValid) {
+                ma_gainer_process_pcm_frames(&pEngineNode->volumeGainer, pWorkingBuffer, pWorkingBuffer, framesJustProcessedOut);
+            } else {
+                ma_gainer_process_pcm_frames(&pEngineNode->volumeGainer, pWorkingBuffer, pRunningFramesIn, framesJustProcessedOut);
+                isWorkingBufferValid = MA_TRUE;
+            }
+        }
+
+        /*
         If at this point we still haven't actually done anything with the working buffer we need
         to just read straight from the input buffer.
         */
@@ -76034,6 +76225,26 @@ MA_API ma_uint64 ma_engine_get_time_in_milliseconds(const ma_engine* pEngine)
 MA_API ma_result ma_engine_set_time_in_pcm_frames(ma_engine* pEngine, ma_uint64 globalTime)
 {
     return ma_node_graph_set_time(&pEngine->nodeGraph, globalTime);
+}
+
+MA_API ma_result ma_engine_set_time_in_milliseconds(ma_engine* pEngine, ma_uint64 globalTime)
+{
+    return ma_engine_set_time_in_pcm_frames(pEngine, globalTime * ma_engine_get_sample_rate(pEngine) / 1000);
+}
+
+MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine)
+{
+    return ma_engine_get_time_in_pcm_frames(pEngine);
+}
+
+MA_API ma_uint64 ma_engine_get_time_in_milliseconds(const ma_engine* pEngine)
+{
+    return ma_engine_get_time_in_pcm_frames(pEngine) * 1000 / ma_engine_get_sample_rate(pEngine);
+}
+
+MA_API ma_result ma_engine_set_time_in_pcm_frames(ma_engine* pEngine, ma_uint64 globalTime)
+{
+    return ma_engine_set_time_in_pcm_frames(pEngine, globalTime);
 }
 
 MA_API ma_result ma_engine_set_time_in_milliseconds(ma_engine* pEngine, ma_uint64 globalTime)
@@ -79234,6 +79445,50 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
             if (ma_dr_wav_bytes_to_u32_le(chunkSizeBytes) != 0xFFFFFFFF) {
                 return MA_FALSE;
             }
+        } else if (pWav->container == ma_dr_wav_container_rf64) {
+            if (ma_dr_wav_bytes_to_u32_le(chunkSizeBytes) != 0xFFFFFFFF) {
+                return MA_FALSE;
+            }
+        } else {
+            return MA_FALSE;
+        }
+        if (ma_dr_wav__on_read(pWav->onRead, pWav->pUserData, wave, sizeof(wave), &cursor) != sizeof(wave)) {
+            return MA_FALSE;
+        }
+        if (!ma_dr_wav_fourcc_equal(wave, "WAVE")) {
+            return MA_FALSE;
+        }
+    } else if (pWav->container == ma_dr_wav_container_w64) {
+        ma_uint8 chunkSizeBytes[8];
+        ma_uint8 wave[16];
+        if (ma_dr_wav__on_read(pWav->onRead, pWav->pUserData, chunkSizeBytes, sizeof(chunkSizeBytes), &cursor) != sizeof(chunkSizeBytes)) {
+            return MA_FALSE;
+        }
+        if (ma_dr_wav_bytes_to_u64(chunkSizeBytes) < 80) {
+            return MA_FALSE;
+        }
+        if (ma_dr_wav__on_read(pWav->onRead, pWav->pUserData, wave, sizeof(wave), &cursor) != sizeof(wave)) {
+            return MA_FALSE;
+        }
+        if (!ma_dr_wav_guid_equal(wave, ma_dr_wavGUID_W64_WAVE)) {
+            return MA_FALSE;
+        }
+    } else if (pWav->container == ma_dr_wav_container_aiff) {
+        ma_uint8 chunkSizeBytes[4];
+        ma_uint8 aiff[4];
+        if (ma_dr_wav__on_read(pWav->onRead, pWav->pUserData, chunkSizeBytes, sizeof(chunkSizeBytes), &cursor) != sizeof(chunkSizeBytes)) {
+            return MA_FALSE;
+        }
+        if (ma_dr_wav_bytes_to_u32_be(chunkSizeBytes) < 18) {
+            return MA_FALSE;
+        }
+        if (ma_dr_wav__on_read(pWav->onRead, pWav->pUserData, aiff, sizeof(aiff), &cursor) != sizeof(aiff)) {
+            return MA_FALSE;
+        }
+        if (ma_dr_wav_fourcc_equal(aiff, "AIFF")) {
+            isAIFCFormType = MA_FALSE;
+        } else if (ma_dr_wav_fourcc_equal(aiff, "AIFC")) {
+            isAIFCFormType = MA_TRUE;
         } else {
             return MA_FALSE;
         }
@@ -79585,7 +79840,6 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
         if (!ma_dr_wav__seek_from_start(pWav->onSeek, pWav->dataChunkDataPos, pWav->pUserData)) {
             return MA_FALSE;
         }
-        cursor = pWav->dataChunkDataPos;
     }
     if (isProcessingMetadata && metadataParser.metadataCount > 0) {
         if (ma_dr_wav__seek_from_start(pWav->onSeek, metadataStartPos, pWav->pUserData) == MA_FALSE) {
