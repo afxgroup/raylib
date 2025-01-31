@@ -2,6 +2,8 @@
 *
 *   raylib [shaders] example - Basic PBR
 *
+*   Example complexity rating: [★★★★] 4/4
+*
 *   Example originally created with raylib 5.0, last time updated with raylib 5.1-dev
 *
 *   Example contributed by Afan OLOVCIC (@_DevDad) and reviewed by Ramon Santamaria (@raysan5)
@@ -9,7 +11,7 @@
 *   Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
 *   BSD-like license that allows static linking with closed source software
 *
-*   Copyright (c) 2023-2024 Afan OLOVCIC (@_DevDad)
+*   Copyright (c) 2023-2025 Afan OLOVCIC (@_DevDad)
 *
 *   Model: "Old Rusty Car" (https://skfb.ly/LxRy) by Renafox, 
 *   licensed under Creative Commons Attribution-NonCommercial 
@@ -22,7 +24,7 @@
 #if defined(PLATFORM_DESKTOP) && !defined(__amigaos4__)
     #define GLSL_VERSION            330
 #else   // PLATFORM_ANDROID, PLATFORM_WEB
-    #define GLSL_VERSION            120
+    #define GLSL_VERSION            100
 #endif
 
 #include <stdlib.h>             // Required for: NULL
@@ -236,7 +238,7 @@ int main()
                 float emissiveIntensity = 0.01f;
                 SetShaderValue(shader, emissiveIntensityLoc, &emissiveIntensity, SHADER_UNIFORM_FLOAT);
                 
-                DrawModel(car, (Vector3){ 0.0f, 0.0f, 0.0f }, 0.005f, WHITE);   // Draw car model
+                DrawModel(car, (Vector3){ 0.0f, 0.0f, 0.0f }, 0.25f, WHITE);   // Draw car model
 
                 // Draw spheres to show the lights positions
                 for (int i = 0; i < MAX_LIGHTS; i++)
