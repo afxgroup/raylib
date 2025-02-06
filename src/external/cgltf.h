@@ -956,9 +956,15 @@ static int jsmn_parse(jsmn_parser *parser, const char *js, size_t len, jsmntok_t
 #define GlbHeaderSize 12
 #define GlbChunkHeaderSize 8
 static const uint32_t GlbVersion = 2;
+#ifndef __amigaos4__
 static const uint32_t GlbMagic = 0x46546C67;
 static const uint32_t GlbMagicJsonChunk = 0x4E4F534A;
 static const uint32_t GlbMagicBinChunk = 0x004E4942;
+#else
+static const uint32_t GlbMagic = 0x676C5446;
+static const uint32_t GlbMagicJsonChunk = 0x4A534F4E;
+static const uint32_t GlbMagicBinChunk = 0x42494E00;
+#endif
 #define CGLTF_CONSTS
 #endif
 
@@ -1133,7 +1139,11 @@ cgltf_result cgltf_parse(const cgltf_options* options, const void* data, cgltf_s
 	const uint8_t* ptr = (const uint8_t*)data;
 	// Version
 	memcpy(&tmp, ptr + 4, 4);
+#ifndef __amigaos4__
 	uint32_t version = tmp;
+#else
+	uint32_t version = __builtin_bswap32(tmp);
+#endif		
 	if (version != GlbVersion)
 	{
 		return version < GlbVersion ? cgltf_result_legacy_gltf : cgltf_result_unknown_format;
@@ -1141,6 +1151,9 @@ cgltf_result cgltf_parse(const cgltf_options* options, const void* data, cgltf_s
 
 	// Total length
 	memcpy(&tmp, ptr + 8, 4);
+#ifdef __amigaos4__
+	tmp = __builtin_bswap32(tmp);
+#endif		
 	if (tmp > size)
 	{
 		return cgltf_result_data_too_short;
@@ -1156,6 +1169,9 @@ cgltf_result cgltf_parse(const cgltf_options* options, const void* data, cgltf_s
 	// JSON chunk: length
 	uint32_t json_length;
 	memcpy(&json_length, json_chunk, 4);
+#ifdef __amigaos4__
+	json_length = __builtin_bswap32(json_length);
+#endif		
 	if (json_length > size - GlbHeaderSize - GlbChunkHeaderSize)
 	{
 		return cgltf_result_data_too_short;
@@ -1181,6 +1197,9 @@ cgltf_result cgltf_parse(const cgltf_options* options, const void* data, cgltf_s
 		// Bin chunk: length
 		uint32_t bin_length;
 		memcpy(&bin_length, bin_chunk, 4);
+#ifdef __amigaos4__
+		bin_length = __builtin_bswap32(bin_length);
+#endif		
 		if (bin_length > size - GlbHeaderSize - GlbChunkHeaderSize - json_length - GlbChunkHeaderSize)
 		{
 			return cgltf_result_data_too_short;
@@ -6080,6 +6099,7 @@ static int cgltf_parse_json_animation(cgltf_options* options, jsmntok_t const* t
 static int cgltf_parse_json_animations(cgltf_options* options, jsmntok_t const* tokens, int i, const uint8_t* json_chunk, cgltf_data* out_data)
 {
 	i = cgltf_parse_json_array(options, tokens, i, json_chunk, sizeof(cgltf_animation), (void**)&out_data->animations, &out_data->animations_count);
+
 	if (i < 0)
 	{
 		return i;
