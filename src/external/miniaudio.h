@@ -18588,7 +18588,7 @@ Timing
         return (emscripten_get_now() - pTimer->counterD) / 1000;    /* Emscripten is in milliseconds. */
     }
 #else
-    #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L
+    #if defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 199309L || defined(__amigaos4__)
         #if defined(CLOCK_MONOTONIC)
             #define MA_CLOCK_ID CLOCK_MONOTONIC
         #else
@@ -19631,11 +19631,11 @@ static ma_result ma_device_uninit__ahi(ma_device* pDevice)
     ma_event_uninit(&pDevice->ahi.operationEvent);
 
     if (pDevice->ahi.audioBuffer[0]) {
-        IExec->FreeVec(pDevice->ahi.audioBuffer[0]);
+        FreeVec(pDevice->ahi.audioBuffer[0]);
         pDevice->ahi.audioBuffer[0] = NULL;
     }
     if (pDevice->ahi.audioBuffer[1]) {
-        IExec->FreeVec(pDevice->ahi.audioBuffer[1]);
+        FreeVec(pDevice->ahi.audioBuffer[1]);
         pDevice->ahi.audioBuffer[1] = NULL;
     }
 
@@ -19710,7 +19710,7 @@ static ma_result ma_device_init__ahi(ma_device* pDevice, const ma_device_config*
             pDevice->ahi.ahiType = (pDescriptorPlayback->channels < 2) ? AHIST_M32S : AHIST_S32S;
             break;
         default:
-            IExec->DebugPrintF("Unsupported format %ld\n", pDescriptorPlayback->format);
+            DebugPrintF("Unsupported format %ld\n", pDescriptorPlayback->format);
             ma_device_uninit__ahi(pDevice);
             return MA_ERROR;
     }
@@ -19760,7 +19760,7 @@ static BOOL ma_device_is_started__ahi(ma_device* pDevice)
 static ma_result ma_device_start__ahi(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
-    pDevice->ahi.ahiTask = IExec->FindTask(NULL);
+    pDevice->ahi.ahiTask = FindTask(NULL);
 
     ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
     ma_uint32 bufferSize;
@@ -19770,22 +19770,22 @@ static ma_result ma_device_start__ahi(ma_device* pDevice)
     else {
         bufferSize = pDevice->capture.internalPeriodSizeInFrames * bpf * pDevice->capture.internalPeriods;
     }
-    pDevice->ahi.audioBuffer[0] = IExec->AllocVecTags(bufferSize, AVT_Type, MEMF_SHARED, TAG_DONE);
-    pDevice->ahi.audioBuffer[1] = IExec->AllocVecTags(bufferSize, AVT_Type, MEMF_SHARED, TAG_DONE);
+    pDevice->ahi.audioBuffer[0] = (ma_uint8*)AllocVecTags(bufferSize, AVT_Type, MEMF_SHARED, TAG_DONE);
+    pDevice->ahi.audioBuffer[1] = (ma_uint8*)AllocVecTags(bufferSize, AVT_Type, MEMF_SHARED, TAG_DONE);
     pDevice->ahi.ahiRequestSent[0] = MA_FALSE;
     pDevice->ahi.ahiRequestSent[1] = MA_FALSE;
 
     if (pDevice->ahi.audioBuffer[0] == NULL || pDevice->ahi.audioBuffer[1] == NULL) {
         if (pDevice->ahi.audioBuffer[0]) {
-            IExec->FreeVec(pDevice->ahi.audioBuffer[0]);
+            FreeVec(pDevice->ahi.audioBuffer[0]);
             pDevice->ahi.audioBuffer[0] = NULL;
         }
         if (pDevice->ahi.audioBuffer[1]) {
-            IExec->FreeVec(pDevice->ahi.audioBuffer[1]);
+            FreeVec(pDevice->ahi.audioBuffer[1]);
             pDevice->ahi.audioBuffer[1] = NULL;
         }
 
-        IExec->DebugPrintF("No memory for audio buffer\n");
+        DebugPrintF("No memory for audio buffer\n");
         ma_device_uninit__ahi(pDevice);
         return MA_ERROR;
     }
@@ -19793,11 +19793,11 @@ static ma_result ma_device_start__ahi(ma_device* pDevice)
     MA_ZERO_OBJECT(pDevice->ahi.audioBuffer[0]);
     MA_ZERO_OBJECT(pDevice->ahi.audioBuffer[1]);
 
-    pDevice->ahi.ahiReplyPort = (struct MsgPort *) IExec->AllocSysObjectTags(ASOT_PORT, TAG_DONE);
+    pDevice->ahi.ahiReplyPort = (struct MsgPort *) AllocSysObjectTags(ASOT_PORT, TAG_DONE);
     if (pDevice->ahi.ahiReplyPort) {
         /* create a iorequest for the device */
         pDevice->ahi.ahiRequest[0] = (struct AHIRequest *)
-            IExec->AllocSysObjectTags(
+            AllocSysObjectTags(
                 ASOT_IOREQUEST,
                 ASOIOR_ReplyPort, pDevice->ahi.ahiReplyPort,
                 ASOIOR_Size,      sizeof(struct AHIRequest),
@@ -19805,7 +19805,7 @@ static ma_result ma_device_start__ahi(ma_device* pDevice)
 
         if (pDevice->ahi.ahiRequest[0]) {
             pDevice->ahi.ahiRequest[0]->ahir_Version = 5;
-            pDevice->ahi.ahiRequest[0]->ahir_Std.io_Message.mn_Node.ln_Pri = 0;
+            pDevice->ahi.ahiRequest[0]->ahir_Std.io_Message.mn_Node.ln_Pri = 60;
             pDevice->ahi.ahiRequest[0]->ahir_Std.io_Command = CMD_WRITE;
             pDevice->ahi.ahiRequest[0]->ahir_Volume         = 0x10000;
             pDevice->ahi.ahiRequest[0]->ahir_Position       = 0x8000;
@@ -19813,25 +19813,25 @@ static ma_result ma_device_start__ahi(ma_device* pDevice)
             pDevice->ahi.ahiRequest[0]->ahir_Frequency      = pDevice->playback.internalSampleRate;
             pDevice->ahi.ahiRequest[0]->ahir_Type           = pDevice->ahi.ahiType;
 
-            if (!IExec->OpenDevice(AHINAME, 0, (struct IORequest *) pDevice->ahi.ahiRequest[0], 0)) {
+            if (!OpenDevice(AHINAME, 0, (struct IORequest *) pDevice->ahi.ahiRequest[0], 0)) {
                 /* Create a copy */
-                pDevice->ahi.ahiRequest[1] = (struct AHIRequest *) IExec->AllocSysObjectTags(
+                pDevice->ahi.ahiRequest[1] = (struct AHIRequest *) AllocSysObjectTags(
                         ASOT_IOREQUEST,
                         ASOIOR_Duplicate, pDevice->ahi.ahiRequest[0],
                         TAG_DONE);
                 if (pDevice->ahi.ahiRequest[1]) {
                     pDevice->ahi.deviceOpen = MA_TRUE;
                 } else {
-                    IExec->DebugPrintF("Failed to duplicate IO request\n");
+                    DebugPrintF("Failed to duplicate IO request\n");
                 }
             } else {
-                IExec->DebugPrintF("Failed to open %s\n", AHINAME);
+                DebugPrintF("Failed to open %s\n", AHINAME);
             }
         } else {
-            IExec->DebugPrintF("Failed to create IO request\n");
+            DebugPrintF("Failed to create IO request\n");
         }
     } else {
-        IExec->DebugPrintF("Failed to create reply port\n");
+        DebugPrintF("Failed to create reply port\n");
     }
 
     if (!pDevice->ahi.deviceOpen) {
@@ -19848,26 +19848,36 @@ static ma_result ma_device_start__ahi(ma_device* pDevice)
 static ma_result ma_device_stop__ahi(ma_device* pDevice)
 {
     MA_ASSERT(pDevice != NULL);
-
+DebugPrintF("1\n");
    if (pDevice->ahi.ahiRequest[0]) {
+DebugPrintF("2\n");
         if (pDevice->ahi.ahiRequest[1] && pDevice->ahi.ahiRequestSent[1] == MA_TRUE) {
-            IExec->AbortIO((struct IORequest *) pDevice->ahi.ahiRequest[1]);
-            IExec->WaitIO((struct IORequest *) pDevice->ahi.ahiRequest[1]);
+DebugPrintF("3\n");
+            AbortIO((struct IORequest *) pDevice->ahi.ahiRequest[1]);
         }
+DebugPrintF("4\n");
+        //WaitIO((struct IORequest *) pDevice->ahi.ahiRequest[1]);
+DebugPrintF("5\n");
 
-        IExec->CloseDevice((struct IORequest *)pDevice->ahi.ahiRequest[0]);
+        CloseDevice((struct IORequest *)pDevice->ahi.ahiRequest[0]);
+DebugPrintF("6\n");
 
-        IExec->FreeSysObject(ASOT_IOREQUEST, pDevice->ahi.ahiRequest[0]);
+        FreeSysObject(ASOT_IOREQUEST, pDevice->ahi.ahiRequest[0]);
+DebugPrintF("7\n");
         pDevice->ahi.ahiRequest[0] = NULL;
 
         if (pDevice->ahi.ahiRequest[1]) {
-            IExec->FreeSysObject(ASOT_IOREQUEST, pDevice->ahi.ahiRequest[1]);
+DebugPrintF("8\n");
+            FreeSysObject(ASOT_IOREQUEST, pDevice->ahi.ahiRequest[1]);
+DebugPrintF("9\n");
             pDevice->ahi.ahiRequest[1] = NULL;
         }
     }
+DebugPrintF("10\n");
 
     if (pDevice->ahi.ahiReplyPort) {
-        IExec->FreeSysObject(ASOT_PORT, pDevice->ahi.ahiReplyPort);
+DebugPrintF("11\n");
+        FreeSysObject(ASOT_PORT, pDevice->ahi.ahiReplyPort);
         pDevice->ahi.ahiReplyPort = NULL;
     }
 
@@ -19898,25 +19908,25 @@ static ma_result ma_device_write__ahi(ma_device* pDevice, const void* pPCMFrames
     ma_bool32 wasStartedOnEntry;
     ULONG signals;
 
-    if (!pDevice)  {
-        IExec->DebugPrintF("Device not yet created\n");
+    if (!pDevice || !pDevice->ahi.deviceOpen) {
         return MA_ERROR;
     }
-
-    if (!pDevice->ahi.deviceOpen) {
-        IExec->DebugPrintF("Device is not open\n");
-        return MA_ERROR;
-    }
-
-    if (IExec->FindTask(0) != pDevice->ahi.ahiTask)
-		printf("*** ERROR: Not called from same thread (%p vs %p)\n",
-            IExec->FindTask(0), pDevice->ahi.ahiTask);
 
     if (pFramesWritten != NULL) {
         *pFramesWritten = 0;
     }
 
     wasStartedOnEntry = ma_device_is_started__ahi(pDevice);
+
+    /* Hoist invariants out of the loop. bpf was being recomputed twice per
+    ** iteration; the per-device pointer chases were also forcing the
+    ** compiler to reload state every pass. */
+    const ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat,
+                                                  pDevice->playback.internalChannels);
+    const ma_uint32 periodSize = pDevice->playback.internalPeriodSizeInFrames;
+    ma_uint8 ** const audioBuffers = pDevice->ahi.audioBuffer;
+    struct AHIRequest ** const ahiReqs = pDevice->ahi.ahiRequest;
+    ma_bool32 * const ahiSent = pDevice->ahi.ahiRequestSent;
 
     /* Keep going until everything has been read. */
     totalPCMFramesProcessed = 0;
@@ -19932,13 +19942,14 @@ static ma_result ma_device_write__ahi(ma_device* pDevice, const void* pPCMFrames
             if (framesToProcess > framesRemaining) {
                 framesToProcess = framesRemaining;
             }
-            ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
             ma_uint32 len = framesToProcess * bpf;
-            MA_COPY_MEMORY(pDevice->ahi.audioBuffer[current] + (pDevice->ahi.currentPeriodFramesBufferedPlayback * bpf), pPCMFrames, len);
+            MA_COPY_MEMORY(audioBuffers[current] + (pDevice->ahi.currentPeriodFramesBufferedPlayback * bpf),
+                           pPCMFrames, len);
 
             pDevice->ahi.currentPeriodFramesRemainingPlayback -= framesToProcess;
-            pDevice->ahi.currentPeriodFramesBufferedPlayback += framesToProcess;
-            totalPCMFramesProcessed += framesToProcess;
+            pDevice->ahi.currentPeriodFramesBufferedPlayback  += framesToProcess;
+            totalPCMFramesProcessed                            += framesToProcess;
+            pPCMFrames = (const ma_uint8*)pPCMFrames + len;
         }
 
         /* If we've consumed the current period play it. */
@@ -19950,26 +19961,25 @@ static ma_result ma_device_write__ahi(ma_device* pDevice, const void* pPCMFrames
                 }
             }
 
-            ma_uint32 bpf = ma_get_bytes_per_frame(pDevice->playback.internalFormat, pDevice->playback.internalChannels);
-            struct AHIRequest  *ahiRequest, *ahiOtherRequest;
             int current = pDevice->ahi.currentBuffer;
-            ahiRequest = pDevice->ahi.ahiRequest[current];
-            ahiOtherRequest = pDevice->ahi.ahiRequest[current ^ 1];
+            int other   = current ^ 1;
+            struct AHIRequest *ahiRequest      = ahiReqs[current];
+            struct AHIRequest *ahiOtherRequest = ahiReqs[other];
 
-            ahiRequest->ahir_Std.io_Data    = pDevice->ahi.audioBuffer[current];
-            ahiRequest->ahir_Std.io_Length  = pDevice->ahi.currentPeriodFramesBufferedPlayback * bpf;
-            ahiRequest->ahir_Link           = ahiOtherRequest;
+            ahiRequest->ahir_Std.io_Data   = audioBuffers[current];
+            ahiRequest->ahir_Std.io_Length = pDevice->ahi.currentPeriodFramesBufferedPlayback * bpf;
+            ahiRequest->ahir_Link          = ahiOtherRequest;
 
-            IExec->SendIO((struct IORequest *) ahiRequest);
-            pDevice->ahi.ahiRequestSent[current] = MA_TRUE;
+            SendIO((struct IORequest *) ahiRequest);
+            ahiSent[current] = MA_TRUE;
 
-            /* Wait for the other buffer to finish finish first, if we ever actually send one off */
-			if (pDevice->ahi.ahiRequestSent[current ^ 1] == MA_TRUE) {
-                IExec->WaitIO((struct IORequest *) ahiOtherRequest);
+            /* Wait for the other buffer to finish first, if we ever actually sent one off. */
+            if (ahiSent[other] == MA_TRUE) {
+                WaitIO((struct IORequest *) ahiOtherRequest);
             }
 
             pDevice->ahi.currentPeriodFramesBufferedPlayback = 0;
-            pDevice->ahi.currentBuffer ^= 1;
+            pDevice->ahi.currentBuffer = other;
         }
 
         /* If we've consumed the whole buffer we can return now. */
@@ -63202,18 +63212,6 @@ static ma_result ma_mp3_post_init(ma_mp3* pMP3, const ma_decoding_backend_config
     return MA_SUCCESS;
 }
 
-static ma_result ma_mp3_post_init(ma_mp3* pMP3, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks)
-{
-    ma_result result;
-
-    result = ma_mp3_generate_seek_table(pMP3, pConfig, pAllocationCallbacks);
-    if (result != MA_SUCCESS) {
-        return result;
-    }
-
-    return MA_SUCCESS;
-}
-
 MA_API ma_result ma_mp3_init(ma_read_proc onRead, ma_seek_proc onSeek, ma_tell_proc onTell, void* pReadSeekTellUserData, const ma_decoding_backend_config* pConfig, const ma_allocation_callbacks* pAllocationCallbacks, ma_mp3* pMP3)
 {
     ma_result result;
@@ -66973,141 +66971,6 @@ MA_API ma_result ma_waveform_seek_to_pcm_frame(ma_waveform* pWaveform, ma_uint64
     }
 
     pWaveform->time = pWaveform->advance * (ma_int64)frameIndex;    /* Casting for VC6. Won't be an issue in practice. */
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_pulsewave_config ma_pulsewave_config_init(ma_format format, ma_uint32 channels, ma_uint32 sampleRate, double dutyCycle, double amplitude, double frequency)
-{
-    ma_pulsewave_config config;
-
-    MA_ZERO_OBJECT(&config);
-    config.format     = format;
-    config.channels   = channels;
-    config.sampleRate = sampleRate;
-    config.dutyCycle  = dutyCycle;
-    config.amplitude  = amplitude;
-    config.frequency  = frequency;
-
-    return config;
-}
-
-MA_API ma_result ma_pulsewave_init(const ma_pulsewave_config* pConfig, ma_pulsewave* pWaveform)
-{
-    ma_result result;
-    ma_waveform_config config;
-
-    if (pWaveform == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    MA_ZERO_OBJECT(pWaveform);
-
-    config = ma_waveform_config_init(
-        pConfig->format,
-        pConfig->channels,
-        pConfig->sampleRate,
-        ma_waveform_type_square,
-        pConfig->amplitude,
-        pConfig->frequency
-    );
-
-    result = ma_waveform_init(&config, &pWaveform->waveform);
-    ma_pulsewave_set_duty_cycle(pWaveform, pConfig->dutyCycle);
-
-    return result;
-}
-
-MA_API void ma_pulsewave_uninit(ma_pulsewave* pWaveform)
-{
-    if (pWaveform == NULL) {
-        return;
-    }
-
-    ma_waveform_uninit(&pWaveform->waveform);
-}
-
-MA_API ma_result ma_pulsewave_read_pcm_frames(ma_pulsewave* pWaveform, void* pFramesOut, ma_uint64 frameCount, ma_uint64* pFramesRead)
-{
-    if (pFramesRead != NULL) {
-        *pFramesRead = 0;
-    }
-
-    if (frameCount == 0) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pWaveform == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    if (pFramesOut != NULL) {
-        ma_waveform_read_pcm_frames__square(&pWaveform->waveform, pWaveform->config.dutyCycle, pFramesOut, frameCount);
-    } else {
-        pWaveform->waveform.time += pWaveform->waveform.advance * (ma_int64)frameCount; /* Cast to int64 required for VC6. Won't affect anything in practice. */
-    }
-
-    if (pFramesRead != NULL) {
-        *pFramesRead = frameCount;
-    }
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_pulsewave_seek_to_pcm_frame(ma_pulsewave* pWaveform, ma_uint64 frameIndex)
-{
-    if (pWaveform == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    ma_waveform_seek_to_pcm_frame(&pWaveform->waveform, frameIndex);
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_pulsewave_set_amplitude(ma_pulsewave* pWaveform, double amplitude)
-{
-    if (pWaveform == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pWaveform->config.amplitude = amplitude;
-    ma_waveform_set_amplitude(&pWaveform->waveform, amplitude);
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_pulsewave_set_frequency(ma_pulsewave* pWaveform, double frequency)
-{
-    if (pWaveform == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pWaveform->config.frequency = frequency;
-    ma_waveform_set_frequency(&pWaveform->waveform, frequency);
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_pulsewave_set_sample_rate(ma_pulsewave* pWaveform, ma_uint32 sampleRate)
-{
-    if (pWaveform == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pWaveform->config.sampleRate = sampleRate;
-    ma_waveform_set_sample_rate(&pWaveform->waveform, sampleRate);
-
-    return MA_SUCCESS;
-}
-
-MA_API ma_result ma_pulsewave_set_duty_cycle(ma_pulsewave* pWaveform, double dutyCycle)
-{
-    if (pWaveform == NULL) {
-        return MA_INVALID_ARGS;
-    }
-
-    pWaveform->config.dutyCycle = dutyCycle;
 
     return MA_SUCCESS;
 }
@@ -76237,26 +76100,6 @@ MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine)
     return ma_engine_get_time_in_pcm_frames(pEngine);
 }
 
-MA_API ma_uint64 ma_engine_get_time_in_milliseconds(const ma_engine* pEngine)
-{
-    return ma_engine_get_time_in_pcm_frames(pEngine) * 1000 / ma_engine_get_sample_rate(pEngine);
-}
-
-MA_API ma_result ma_engine_set_time_in_pcm_frames(ma_engine* pEngine, ma_uint64 globalTime)
-{
-    return ma_engine_set_time_in_pcm_frames(pEngine, globalTime);
-}
-
-MA_API ma_result ma_engine_set_time_in_milliseconds(ma_engine* pEngine, ma_uint64 globalTime)
-{
-    return ma_engine_set_time_in_pcm_frames(pEngine, globalTime * ma_engine_get_sample_rate(pEngine) / 1000);
-}
-
-MA_API ma_uint64 ma_engine_get_time(const ma_engine* pEngine)
-{
-    return ma_engine_get_time_in_pcm_frames(pEngine);
-}
-
 MA_API ma_result ma_engine_set_time(ma_engine* pEngine, ma_uint64 globalTime)
 {
     return ma_engine_set_time_in_pcm_frames(pEngine, globalTime);
@@ -79492,12 +79335,8 @@ MA_PRIVATE ma_bool32 ma_dr_wav_init__internal(ma_dr_wav* pWav, ma_dr_wav_chunk_p
         } else {
             return MA_FALSE;
         }
-        if (ma_dr_wav__on_read(pWav->onRead, pWav->pUserData, wave, sizeof(wave), &cursor) != sizeof(wave)) {
-            return MA_FALSE;
-        }
-        if (!ma_dr_wav_fourcc_equal(wave, "WAVE")) {
-            return MA_FALSE;
-        }
+        /* AIFF/AIFC streams have no "WAVE" magic — upstream stray copy-paste
+         * referenced an undeclared `wave` buffer here. Removed. */
     } else if (pWav->container == ma_dr_wav_container_w64) {
         ma_uint8 chunkSizeBytes[8];
         ma_uint8 wave[16];
